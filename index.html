@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Семейный календарь</title>
+    <style>
+        :root {
+            --primary-color: #4CAF50;
+            --secondary-color: #2196F3;
+            --bg-color: #f5f5f5;
+            --card-color: #ffffff;
+            --text-color: #333333;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-color);
+            max-width: 100%;
+            overflow-x: hidden;
+        }
+        
+        .container {
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: var(--primary-color);
+            color: white;
+            padding: 20px;
+            border-radius: 15px 15px 0 0;
+            margin-bottom: 20px;
+        }
+        
+        .family-name {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .date-display {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 5px;
+            margin-bottom: 20px;
+        }
+        
+        .day-header {
+            text-align: center;
+            padding: 10px;
+            font-weight: bold;
+            color: #666;
+        }
+        
+        .day-cell {
+            aspect-ratio: 1;
+            background: white;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            border: 2px solid transparent;
+        }
+        
+        .day-cell:hover {
+            transform: scale(1.05);
+            border-color: var(--primary-color);
+        }
+        
+        .day-cell.today {
+            background: var(--primary-color);
+            color: white;
+        }
+        
+        .day-cell.has-events::after {
+            content: '';
+            position: absolute;
+            bottom: 5px;
+            width: 6px;
+            height: 6px;
+            background: var(--secondary-color);
+            border-radius: 50%;
+        }
+        
+        .day-number {
+            font-size: 1.2em;
+            font-weight: bold;
+        }
+        
+        .events-list {
+            margin-top: 20px;
+        }
+        
+        .event-card {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-left: 4px solid var(--primary-color);
+            position: relative;
+        }
+        
+        .event-important {
+            border-left-color: #FF5722;
+        }
+        
+        .event-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 1.1em;
+        }
+        
+        .event-meta {
+            display: flex;
+            justify-content: space-between;
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+        
+        .event-author {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        .author-avatar {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 0.8em;
+        }
+        
+        .add-button {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 60px;
+            height: 60px;
+            background: var(--primary-color);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2em;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1001;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-content {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 1em;
+        }
+        
+        .form-group textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        
+        .color-picker {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .color-option {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+        
+        .color-option.selected {
+            border-color: #333;
+        }
+        
+        .button {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            width: 100%;
+        }
+        
+        .members-list {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+        
+        .member-chip {
+            background: #e0e0e0;
+            padding: 5px 10px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        @media (max-width: 600px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .date-display {
+                flex-direction: column;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="family-name" id="familyName">Семья</div>
+            <div class="family-code" id="familyCode">Код: ---</div>
+        </div>
+        
+        <div class="date-display">
+            <button onclick="changeMonth(-1)">←</button>
+            <div id="currentMonth">Январь 2024</div>
+            <button onclick="changeMonth(1)">→</button>
+        </div>
+        
+        <div class="calendar-grid" id="calendarGrid">
+            <!-- Динамически генерируется -->
+        </div>
+        
+        <div class="events-list" id="eventsList">
+            <!-- События загружаются динамически -->
+        </div>
+    </div>
+    
+    <div class="add-button" onclick="openAddModal()">+</div>
+    
+    <!-- Модальное окно добавления события -->
+    <div class="modal" id="addModal">
+        <div class="modal-content">
+            <h2>Новое событие</h2>
+            <form id="eventForm">
+                <div class="form-group">
+                    <label>Название</label>
+                    <input type="text" id="eventTitle" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Описание</label>
+                    <textarea id="eventDescription"></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Дата</label>
+                    <input type="date" id="eventDate" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Время</label>
+                    <input type="time" id="eventTime" required>
+                </div>
+                
+                <div class="form-group">
+                    <label>Важное событие</label>
+                    <input type="checkbox" id="eventImportant">
+                </div>
+                
+                <div class="form-group">
+                    <label>Цвет метки</label>
+                    <div class="color-picker">
+                        <div class="color-option selected" style="background: #FF9800;" onclick="selectColor('#FF9800')"></div>
+                        <div class="color-option" style="background: #4CAF50;" onclick="selectColor('#4CAF50')"></div>
+                        <div class="color-option" style="background: #2196F3;" onclick="selectColor('#2196F3')"></div>
+                        <div class="color-option" style="background: #9C27B0;" onclick="selectColor('#9C27B0')"></div>
+                        <div class="color-option" style="background: #FF5722;" onclick="selectColor('#FF5722')"></div>
+                    </div>
+                </div>
+                
+                <button type="submit" class="button">Добавить</button>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        // Инициализация Telegram Web App
+        const tg = window.Telegram.WebApp;
+        if (tg) {
+            tg.expand();
+            tg.MainButton.hide();
+        }
+        
+        let currentDate = new Date();
+        let selectedDate = new Date();
+        let selectedColor = '#FF9800';
+        let familyData = null;
+        
+        // Загрузка данных
+        async function loadData() {
+            try {
+                // Получаем user_id из параметров или из Telegram
+                let userId = null;
+                if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
+                    userId = tg.initDataUnsafe.user.id;
+                } else {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    userId = urlParams.get('user_id');
+                }
+                
+                if (!userId) {
+                    // Демо данные для тестирования
+                    loadDemoData();
+                    return;
+                }
+                
+                // Запрос к боту через Bot API
+                // В реальном приложении здесь будет реальный запрос
+                // const response = await fetch(`/webapp_data?user_id=${userId}`);
+                // const data = await response.json();
+                
+                // Для тестирования используем демо данные
+                loadDemoData();
+                
+            } catch (error) {
+                console.error('Ошибка загрузки:', error);
+                // Демо данные для тестирования
+                loadDemoData();
+            }
+        }
+        
+        function updateUI() {
+            document.getElementById('familyName').textContent = familyData.family.name;
+            document.getElementById('familyCode').textContent = `Код: ${familyData.family.code}`;
+            
+            // Применяем цвет темы
+            document.documentElement.style.setProperty('--primary-color', familyData.family.theme_color);
+        }
+        
+        function generateCalendar() {
+            const grid = document.getElementById('calendarGrid');
+            if (!grid) return;
+            
+            grid.innerHTML = '';
+            
+            // Заголовки дней
+            const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+            days.forEach(day => {
+                const div = document.createElement('div');
+                div.className = 'day-header';
+                div.textContent = day;
+                grid.appendChild(div);
+            });
+            
+            // Первый день месяца
+            const firstDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+            // Последний день месяца
+            const lastDay = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+            
+            // Пустые ячейки перед первым днем
+            const startDay = firstDay.getDay() || 7;
+            for (let i = 1; i < startDay; i++) {
+                const emptyDiv = document.createElement('div');
+                emptyDiv.className = 'day-cell empty';
+                grid.appendChild(emptyDiv);
+            }
+            
+            // Дни месяца
+            const today = new Date();
+            const todayStr = today.toDateString();
+            
+            for (let day = 1; day <= lastDay.getDate(); day++) {
+                const dayDiv = document.createElement('div');
+                dayDiv.className = 'day-cell';
+                
+                const cellDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
+                if (cellDate.toDateString() === todayStr) {
+                    dayDiv.classList.add('today');
+                }
+                
+                // Проверяем есть ли события в этот день
+                if (hasEventsOnDate(cellDate)) {
+                    dayDiv.classList.add('has-events');
+                }
+                
+                dayDiv.innerHTML = `<div class="day-number">${day}</div>`;
+                
+                dayDiv.onclick = function() {
+                    selectDate(cellDate);
+                };
+                
+                grid.appendChild(dayDiv);
+            }
+            
+            // Обновляем заголовок месяца
+            const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+                              'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+            const monthElement = document.getElementById('currentMonth');
+            if (monthElement) {
+                monthElement.textContent = 
+                    `${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
+            }
+        }
+        
+        function hasEventsOnDate(date) {
+            if (!familyData || !familyData.today_notes) return false;
+            
+            const dateStr = date.toISOString().split('T')[0];
+            
+            // В реальном приложении здесь будет проверка всех событий
+            // Для демо проверяем только сегодняшние
+            const todayStr = new Date().toISOString().split('T')[0];
+            return dateStr === todayStr && familyData.today_notes.length > 0;
+        }
+        
+        function selectDate(date) {
+            selectedDate = date;
+            loadEventsForDate(date);
+            
+            // Подсвечиваем выбранный день
+            document.querySelectorAll('.day-cell').forEach(cell => {
+                cell.classList.remove('selected');
+            });
+            
+            // В реальном приложении нужно найти правильную ячейку
+            // и добавить класс selected
+        }
+        
+        function loadEventsForDate(date) {
+            const eventsList = document.getElementById('eventsList');
+            if (!eventsList) return;
+            
+            // В реальном приложении здесь будет запрос к API
+            // Для демо показываем сегодняшние события
+            
+            if (!familyData || !familyData.today_notes) {
+                eventsList.innerHTML = '<p>Нет событий на выбранную дату</p>';
+                return;
+            }
+            
+            const dateStr = date.toISOString().split('T')[0];
+            const todayStr = new Date().toISOString().split('T')[0];
+            
+            if (dateStr !== todayStr) {
+                eventsList.innerHTML = '<p>Нет событий на выбранную дату</p>';
+                return;
+            }
+            
+            let html = '<h3>События сегодня:</h3>';
+            
+            familyData.today_notes.forEach(event => {
+                html += `
+                    <div class="event-card ${event.important ? 'event-important' : ''}" 
+                         style="border-left-color: ${event.color}">
+                        <div class="event-title">${event.title}</div>
+                        <div class="event-meta">
+                            <span>${event.time}</span>
+                            <div class="event-author">
+                                <div class="author-avatar" style="background: ${event.author_color}">
+                                    ${event.author.charAt(0)}
+                                </div>
+                                ${event.author}
+                            </div>
+                        </div>
+                        ${event.content ? `<div class="event-content">${event.content}</div>` : ''}
+                    </div>
+                `;
+            });
+            
+            eventsList.innerHTML = html;
+        }
+        
+        function changeMonth(delta) {
+            currentDate.setMonth(currentDate.getMonth() + delta);
+            generateCalendar();
+        }
+        
+        function openAddModal() {
+            const modal = document.getElementById('addModal');
+            if (modal) {
+                modal.style.display = 'flex';
+                
+                // Устанавливаем сегодняшнюю дату по умолчанию
+                const today = new Date().toISOString().split('T')[0];
+                document.getElementById('eventDate').value = today;
+                
+                // Устанавливаем ближайший час
+                const nextHour = new Date();
+                nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
+                document.getElementById('eventTime').value = 
+                    nextHour.toTimeString().slice(0, 5);
+            }
+        }
+        
+        function selectColor(color) {
+            selectedColor = color;
+            document.querySelectorAll('.color-option').forEach(opt => {
+                opt.classList.remove('selected');
+            });
+            // Добавляем selected к выбранному элементу
+            event.target.classList.add('selected');
+        }
+        
+        // Демо данные для тестирования
+        function loadDemoData() {
+            familyData = {
+                family: {
+                    name: "Демо Семья",
+                    theme_color: "#4CAF50",
+                    code: "DEMO123"
+                },
+                user: {
+                    name: "Тестовый пользователь",
+                    role: "admin",
+                    color: "#2196F3"
+                },
+                today_notes: [
+                    {
+                        title: "Забрать детей из школы",
+                        time: "14:30",
+                        important: true,
+                        color: "#FF9800",
+                        author: "Мама",
+                        author_color: "#F44336"
+                    },
+                    {
+                        title: "Покупки в магазине",
+                        time: "18:00",
+                        important: false,
+                        color: "#4CAF50",
+                        author: "Папа",
+                        author_color: "#2196F3",
+                        content: "Молоко, хлеб, фрукты"
+                    }
+                ],
+                members: [
+                    { name: "Мама", role: "admin", color: "#F44336" },
+                    { name: "Папа", role: "member", color: "#2196F3" },
+                    { name: "Дочка", role: "member", color: "#9C27B0" },
+                    { name: "Сын", role: "member", color: "#00BCD4" }
+                ]
+            };
+            
+            updateUI();
+            generateCalendar();
+            loadEventsForDate(new Date());
+        }
+        
+        // Назначаем обработчик формы
+        document.addEventListener('DOMContentLoaded', function() {
+            const eventForm = document.getElementById('eventForm');
+            if (eventForm) {
+                eventForm.onsubmit = async function(e) {
+                    e.preventDefault();
+                    
+                    const eventData = {
+                        title: document.getElementById('eventTitle').value,
+                        description: document.getElementById('eventDescription').value,
+                        date: document.getElementById('eventDate').value,
+                        time: document.getElementById('eventTime').value,
+                        important: document.getElementById('eventImportant').checked,
+                        color: selectedColor
+                    };
+                    
+                    try {
+                        // Отправляем данные боту через Telegram
+                        if (tg) {
+                            await tg.sendData(JSON.stringify({
+                                action: 'add_event',
+                                ...eventData
+                            }));
+                        }
+                        
+                        // Закрываем модальное окно
+                        const modal = document.getElementById('addModal');
+                        if (modal) {
+                            modal.style.display = 'none';
+                        }
+                        
+                        // Сбрасываем форму
+                        eventForm.reset();
+                        
+                        // Обновляем данные
+                        loadData();
+                        
+                        if (tg) {
+                            tg.showPopup({
+                                title: 'Успешно!',
+                                message: 'Событие добавлено для всей семьи',
+                                buttons: [{ type: 'ok' }]
+                            });
+                        } else {
+                            alert('Событие добавлено для всей семьи');
+                        }
+                        
+                    } catch (error) {
+                        console.error('Ошибка:', error);
+                        if (tg) {
+                            tg.showPopup({
+                                title: 'Ошибка',
+                                message: 'Не удалось добавить событие',
+                                buttons: [{ type: 'ok' }]
+                            });
+                        } else {
+                            alert('Не удалось добавить событие');
+                        }
+                    }
+                };
+            }
+            
+            // Закрытие модального окна при клике вне его
+            const modal = document.getElementById('addModal');
+            if (modal) {
+                modal.onclick = function(e) {
+                    if (e.target === this) {
+                        this.style.display = 'none';
+                    }
+                };
+            }
+            
+            // Инициализация
+            loadData();
+        });
+    </script>
+</body>
+</html>
