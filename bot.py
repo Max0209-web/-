@@ -1,276 +1,284 @@
 import asyncio
-import logging
+import os
 import json
+import secrets
 from datetime import datetime, timedelta
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import (
-    ReplyKeyboardMarkup, 
-    KeyboardButton, 
-    WebAppInfo,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton
-)
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.storage.memory import MemoryStorage
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from database import Database
-import hashlib
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
+from supabase import create_client, Client
+import logging
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-# Инициализация бота
-API_TOKEN = 'YOUR_BOT_TOKEN'
-bot = Bot(token=API_TOKEN)
-storage = MemoryStorage()
-dp = Dispatcher(storage=storage)
-db = Database()
-scheduler = AsyncIOScheduler()
+# Конфигурация
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN', '8524212627:AAGaH7zqqpPdo6ZMVryA62TcjLOvSG6aDY4')
+SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://rgsshworixeptoivrqlr.supabase.co')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY', 'sb_publishable_2ly2CVhHRMrd_T_MHAk7Uw_pqfSCZGC')
+WEB_APP_URL = os.getenv('WEB_APP_URL', 'https://max0209-web.github.io/-/')
 
-# URL вашего Web App (нужно будет настроить)
-WEB_APP_URL = "https://your-domain.com/family-calendar-webapp"
+# Инициализация
+bot = Bot(token=TELEGRAM_TOKEN)
+dp = Dispatcher()
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Состояния FSM
-class JoinFamily(StatesGroup):
-    waiting_for_code = State()
-
-class CreateFamily(StatesGroup):
-    waiting_for_name = State()
-
-# Клавиатуры
-def get_main_keyboard(user_role='member', family_id=None):
-    # Генерируем уникальный URL для Web App с user_id и family_id
+def get_main_keyboard(family_id=None):
+    keyboard = []
     if family_id:
-        webapp_url = f"{WEB_APP_URL}?user_id={hashlib.md5(str(family_id).encode()).hexdigest()}"
+        webapp_url = f"{WEB_APP_URL}/?family={family_id}"
+        keyboard.append([KeyboardButton(text="📱 Календарь", web_app=WebAppInfo(url=webapp_url))])
+        keyboard.append([KeyboardButton(text="➕ Быстро добавить")])
+        keyboard.append([KeyboardButton(text="👨‍👩‍👧‍👦 Семья"), KeyboardButton(text="📅 Сегодня")])
     else:
-        webapp_url = WEB_APP_URL
-    
-    keyboard = [
-        [KeyboardButton(text="📱 Открыть веб-приложение", web_app=WebAppInfo(url=webapp_url))],
-        [KeyboardButton(text="👨‍👩‍👧‍👦 Моя семья")],
-        [KeyboardButton(text="➕ Быстрое добавление")]
-    ]
-    
-    if user_role == 'admin':
-        keyboard.append([KeyboardButton(text="⚙️ Управление")])
-    
+        keyboard.append([KeyboardButton(text="👨‍👩‍👧‍👦 Создать семью")])
+        keyboard.append([KeyboardButton(text="🔗 Присоединиться")])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
-def get_cancel_keyboard():
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="❌ Отмена")]],
-        resize_keyboard=True
-    )
+async def get_user_family(user_id):
+    result = supabase.table('users').select('family_id, families(name, code)').eq('telegram_id', user_id).execute()
+    if result.data:
+        return result.data[0]['family_id'], result.data[0]['families']
+    return None, None
 
-# Команда старта
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    user_info = db.get_user_family(message.from_user.id)
+    user_id = message.from_user.id
     
-    if user_info:
-        family_id, family_name, role, avatar_color, theme_color = user_info
+    family_id, family_data = await get_user_family(user_id)
+    
+    if family_id:
         await message.answer(
-            f"👋 Добро пожаловать в семейный календарь!\n\n"
-            f"🏠 Семья: <b>{family_name}</b>\n"
-            f"👤 Ваша роль: {'👑 Админ' if role == 'admin' else '👤 Участник'}\n\n"
-            f"📱 Используйте <b>веб-приложение</b> для удобного просмотра "
-            f"и управления календарем!",
-            parse_mode="HTML",
-            reply_markup=get_main_keyboard(role, family_id)
+            f"👋 Добро пожаловать в семью '{family_data['name']}'!\n\n"
+            f"Все заметки видны всем членам семьи.\n"
+            f"Используйте веб-календарь для удобного просмотра!",
+            reply_markup=get_main_keyboard(family_id)
         )
     else:
-        keyboard = ReplyKeyboardMarkup(
-            keyboard=[
-                [KeyboardButton(text="👨‍👩‍👧‍👦 Создать семью")],
-                [KeyboardButton(text="🔗 Присоединиться")]
-            ],
-            resize_keyboard=True
-        )
         await message.answer(
             "👋 Привет! Я помогу вашей семье координировать расписание.\n\n"
             "📌 Все заметки видны всем членам семьи\n"
-            "📱 Есть удобное веб-приложение с календарем\n"
+            "📱 Есть удобный веб-календарь\n"
             "🔔 Автоматические напоминания\n\n"
             "Создайте семью или присоединитесь:",
-            reply_markup=keyboard
+            reply_markup=get_main_keyboard()
         )
 
-# Быстрое добавление заметки
-@dp.message(F.text == "➕ Быстрое добавление")
-async def quick_add_note(message: types.Message, state: FSMContext):
-    user_info = db.get_user_family(message.from_user.id)
-    
-    if not user_info:
-        await message.answer("Сначала присоединитесь к семье!")
-        return
-    
-    family_id = user_info[0]
-    
-    # Пример быстрого добавления через инлайн-клавиатуру
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📝 Добавить текст", callback_data="quick_text")],
-        [InlineKeyboardButton(text="🎂 День рождения", callback_data="quick_birthday")],
-        [InlineKeyboardButton(text="🛒 Покупки", callback_data="quick_shopping")],
-        [InlineKeyboardButton(text="🏥 Врач", callback_data="quick_doctor")],
-        [InlineKeyboardButton(text="📱 Открыть веб-приложение",web_app=WebAppInfo(url=f"{WEB_APP_URL}?action=add"))]
-    ])
-    
-    await message.answer(
-        "Выберите тип быстрого добавления или используйте веб-приложение:",
-        reply_markup=keyboard
-    )
-
-# Информация о семье
-@dp.message(F.text == "👨‍👩‍👧‍👦 Моя семья")
-async def family_info(message: types.Message):
-    user_info = db.get_user_family(message.from_user.id)
-    
-    if not user_info:
-        await message.answer("Сначала присоединитесь к семье!")
-        return
-    
-    family_id, family_name, role, avatar_color, theme_color = user_info
-    members = db.get_family_members(family_id)
-    
-    response = f"🏠 <b>Семья: {family_name}</b>\n\n"
-    response += f"👥 Участники ({len(members)}):\n"
-    
-    for member in members:
-        role_icon = "👑" if member[2] == 'admin' else "👤"
-        response += f"{role_icon} {member[1]}\n"
-    
-    response += f"\n🔑 Код семьи: <code>{db.get_family_by_code(family_id)}</code>\n"
-    response += "📱 Для полного управления используйте веб-приложение!"
-    
-    await message.answer(response, parse_mode="HTML")
-
-# API для Web App
-@dp.message(Command("webapp_data"))
-async def cmd_webapp_data(message: types.Message):
-    user_info = db.get_user_family(message.from_user.id)
-    
-    if not user_info:
-        return await message.answer(json.dumps({"error": "No family"}))
-    
-    family_id, family_name, role, avatar_color, theme_color = user_info
-    
-    # Получаем данные для веб-приложения
-    today = datetime.now().strftime('%Y-%m-%d')
-    notes_today = db.get_today_notes(family_id)
-    members = db.get_family_members(family_id)
-    
-    # Форматируем заметки
-    formatted_notes = []
-    for note in notes_today:
-        formatted_notes.append({
-            'id': note[0],
-            'title': note[3],
-            'content': note[4],
-            'date': note[5],
-            'time': note[6],
-            'important': bool(note[9]),
-            'color': note[10],
-            'author': note[11],
-            'author_color': note[12]
-        })
-    
-    # Форматируем участников
-    formatted_members = []
-    for member in members:
-        formatted_members.append({
-            'id': member[0],
-            'name': member[1],
-            'role': member[2],
-            'color': member[3]
-        })
-    
-    data = {
-        'family': {
-            'id': family_id,
-            'name': family_name,
-            'theme_color': theme_color,
-            'code': db.get_family_by_code(family_id)[0] if db.get_family_by_code(family_id) else ''
-        },
-        'user': {
-            'id': message.from_user.id,
-            'name': message.from_user.full_name,
-            'role': role,
-            'color': avatar_color
-        },
-        'today_notes': formatted_notes,
-        'members': formatted_members,
-        'today': today
-    }
-    
-    await message.answer(json.dumps(data))
-
-# Создание и присоединение к семье (оставляем как есть)
-@dp.message(F.text == "👨‍👩‍👧‍👦 Создать семью")
-async def create_family_start(message: types.Message, state: FSMContext):
-    await state.set_state(CreateFamily.waiting_for_name)
-    await message.answer(
-        "Введите название вашей семьи:",
-        reply_markup=get_cancel_keyboard()
-    )
-
-@dp.message(CreateFamily.waiting_for_name)
-async def create_family_name(message: types.Message, state: FSMContext):
-    if message.text == "❌ Отмена":
-        await state.clear()
-        await message.answer("Отменено")
-        return
-    
-    import secrets
+@dp.message(lambda message: message.text == "👨‍👩‍👧‍👦 Создать семью")
+async def create_family(message: types.Message):
     family_code = secrets.token_hex(4).upper()
-    family_id = db.create_family(family_code, message.text)
-    db.add_user(message.from_user.id, message.from_user.username, 
-                message.from_user.full_name, family_id, 'admin')
+    family_id = f"family_{secrets.token_hex(8)}"
     
-    await state.clear()
+    supabase.table('families').insert({
+        'id': family_id,
+        'name': f"Семья {message.from_user.first_name}",
+        'code': family_code,
+        'theme_color': '#4CAF50'
+    }).execute()
+    
+    supabase.table('users').insert({
+        'telegram_id': message.from_user.id,
+        'username': message.from_user.username,
+        'full_name': message.from_user.full_name,
+        'family_id': family_id,
+        'role': 'admin',
+        'avatar_color': '#2196F3'
+    }).execute()
+    
+    webapp_url = f"{WEB_APP_URL}/?family={family_id}"
+    
     await message.answer(
         f"🎉 Семья создана!\n\n"
-        f"Название: <b>{message.text}</b>\n"
-        f"Код: <code>{family_code}</code>\n\n"
-        f"Поделитесь кодом с членами семьи!\n"
-        f"Теперь используйте веб-приложение 📱",
-        parse_mode="HTML",reply_markup=get_main_keyboard('admin', family_id)
+        f"🏠 Название: Семья {message.from_user.first_name}\n"
+        f"🔑 Код: <code>{family_code}</code>\n\n"
+        f"📱 Ссылка на календарь:\n"
+        f"<code>{webapp_url}</code>\n\n"
+        f"Поделитесь кодом с членами семьи!",
+        parse_mode="HTML",
+        reply_markup=get_main_keyboard(family_id)
     )
 
-# Система напоминаний
-async def send_reminders():
-    notes_to_remind = db.get_notes_for_reminder()
-    
-    for note in notes_to_remind:
-        note_id, user_id, family_id, title, content, note_date, note_time, \
-        reminder_minutes, is_important, color_tag, created_at, author_id, author_name, family_name = note
-        
-        family_members = db.get_family_members(family_id)
-        
-        reminder_text = (
-            f"🔔 <b>НАПОМИНАНИЕ для всей семьи</b>\n\n"
-            f"📌 {title}\n"
-            f"📅 {datetime.strptime(note_date, '%Y-%m-%d').strftime('%d.%m.%Y (%A)')}\n"
-            f"⏰ {note_time} (через {reminder_minutes} мин)\n"
-            f"👤 {author_name}\n"
-        )
-        
-        if content:
-            reminder_text += f"\n📝 {content}"
-        
-        for member in family_members:
-            try:
-                await bot.send_message(member[0], reminder_text, parse_mode="HTML")
-            except:
-                continue
+@dp.message(lambda message: message.text == "🔗 Присоединиться")
+async def join_family_start(message: types.Message):
+    await message.answer("Введите код семьи:")
 
-# Запуск бота
-async def main():
-    scheduler.add_job(send_reminders, 'interval', minutes=1)
-    scheduler.start()
+@dp.message(lambda message: message.text and len(message.text) == 8)
+async def join_family_process(message: types.Message):
+    family_code = message.text.upper()
     
-    print("Бот семейного календаря с Web App запущен!")
+    result = supabase.table('families').select('id, name').eq('code', family_code).execute()
+    
+    if not result.data:
+        await message.answer("❌ Семьи с таким кодом не найдено.")
+        return
+    
+    family = result.data[0]
+    
+    supabase.table('users').insert({
+        'telegram_id': message.from_user.id,
+        'username': message.from_user.username,
+        'full_name': message.from_user.full_name,
+        'family_id': family['id'],
+        'role': 'member',
+        'avatar_color': '#FF9800'
+    }).execute()
+    
+    webapp_url = f"{WEB_APP_URL}/?family={family['id']}"
+    
+    await message.answer(
+        f"🎉 Вы присоединились к семье '{family['name']}'!\n\n"
+        f"📱 Ссылка на календарь:\n"
+        f"<code>{webapp_url}</code>\n\n"
+        f"Теперь все заметки семьи будут видны вам!",
+        parse_mode="HTML",
+        reply_markup=get_main_keyboard(family['id'])
+    )
+
+@dp.message(lambda message: message.text == "➕ Быстро добавить")
+async def quick_add_start(message: types.Message):
+    family_id, _ = await get_user_family(message.from_user.id)
+    
+    if not family_id:
+        await message.answer("Сначала присоединитесь к семье!")
+        return
+    
+    await message.answer("Введите название события одним сообщением:\n\nПример: 'Забрать детей 18:00'")
+
+@dp.message(lambda message: len(message.text) > 5 and ' ' in message.text)
+async def quick_add_process(message: types.Message):
+    family_id, family_data = await get_user_family(message.from_user.id)
+    
+    if not family_id:
+        return
+    
+    text = message.text
+    words = text.split()
+    
+    time_part = None
+    title_parts = []
+    
+    for word in words:
+        if ':' in word and word.replace(':', '').isdigit():
+            time_part = word
+        else:
+            title_parts.append(word)
+    
+    if not time_part:
+        await message.answer("Укажите время в формате ЧЧ:ММ")
+        return
+    
+    title = ' '.join(title_parts)
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    note_data = {
+        'family_id': family_id,
+        'user_id': message.from_user.id,
+        'title': title,
+        'note_date': today,
+        'note_time': time_part,
+        'color_tag': '#4CAF50'
+    }
+    
+    supabase.table('notes').insert(note_data).execute()
+    
+    family_members = supabase.table('users').select('telegram_id').eq('family_id', family_id).execute()
+    
+    for member in family_members.data:
+        if member['telegram_id'] != message.from_user.id:
+            try:
+                await bot.send_message(
+                    member['telegram_id'],
+                    f"📢 Новая заметка от {message.from_user.full_name}:\n"
+                    f"📌 {title}\n"
+                    f"📅 Сегодня ⏰ {time_part}"
+                )
+            except:
+                pass
+    
+    await message.answer(f"✅ Заметка добавлена для всей семьи!")
+
+@dp.message(lambda message: message.text == "📅 Сегодня")
+async def show_today(message: types.Message):
+    family_id, family_data = await get_user_family(message.from_user.id)
+    
+    if not family_id:
+        return
+    
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    result = supabase.table('notes').select('*, users(full_name, avatar_color)').eq('family_id', family_id).eq('note_date', today).order('note_time').execute()
+    
+    if not result.data:
+        await message.answer("🎉 На сегодня событий нет!")
+        return
+    
+    response = f"📅 Заметки на сегодня:\n\n"
+    
+    for note in result.data:
+        time_str = note['note_time'][:5] if isinstance(note['note_time'], str) else str(note['note_time'])
+        author = note['users']['full_name'] if note['users'] else 'Неизвестно'
+        
+        response += f"⏰ {time_str} - {note['title']}\n"
+        response += f"👤 {author}\n\n"
+    
+    await message.answer(response)
+
+@dp.message(lambda message: message.text == "👨‍👩‍👧‍👦 Семья")
+async def show_family(message: types.Message):
+    family_id, family_data = await get_user_family(message.from_user.id)
+    
+    if not family_id:
+        return
+    
+    members = supabase.table('users').select('full_name, role').eq('family_id', family_id).execute()
+    
+    response = f"🏠 Семья: {family_data['name']}\n"
+    response += f"🔑 Код: {family_data['code']}\n\n"
+    response += f"👥 Участники ({len(members.data)}):\n"
+    
+    for member in members.data:
+        role_icon = "👑" if member['role'] == 'admin' else "👤"
+        response += f"{role_icon} {member['full_name']}\n"
+    
+    await message.answer(response)
+
+async def send_reminders():
+    today = datetime.now().strftime('%Y-%m-%d')
+    current_time = datetime.now().strftime('%H:%M')
+    
+    result = supabase.table('notes').select('*, families(name), users(telegram_id, full_name)').eq('note_date', today).execute()
+    
+    for note in result.data:
+        note_time = note['note_time'][:5] if isinstance(note['note_time'], str) else str(note['note_time'])
+        
+        if note_time <= current_time:
+            family_name = note['families']['name'] if note['families'] else 'Семья'
+            author_name = note['users']['full_name'] if note['users'] else 'Неизвестно'
+            
+            members = supabase.table('users').select('telegram_id').eq('family_id', note['family_id']).execute()
+            
+            for member in members.data:
+                try:
+                    await bot.send_message(
+                        member['telegram_id'],
+                        f"🔔 НАПОМИНАНИЕ\n\n"
+                        f"📌 {note['title']}\n"
+                        f"⏰ {note_time}\n"
+                        f"👤 {author_name}"
+                    )
+                except:
+                    pass
+
+async def reminder_scheduler():
+    while True:
+        await asyncio.sleep(60)
+        await send_reminders()
+
+async def main():
+    asyncio.create_task(reminder_scheduler())
+    
+    print("🤖 Бот запущен с Supabase!")
+    print(f"🌐 Web App: {WEB_APP_URL}")
+    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
